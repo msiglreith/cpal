@@ -1,24 +1,29 @@
 extern crate winapi;
 
+pub use self::device::{
+    default_input_device, default_output_device, Device, Devices, SupportedInputFormats,
+    SupportedOutputFormats,
+};
+pub use self::stream::{EventLoop, StreamId};
+use self::winapi::um::winnt::HRESULT;
+use std::io::Error as IoError;
+use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
 use BackendSpecificError;
 use BuildStreamError;
 use DefaultFormatError;
 use DeviceNameError;
 use DevicesError;
 use Format;
-use PlayStreamError;
 use PauseStreamError;
+use PlayStreamError;
 use StreamDataResult;
 use SupportedFormatsError;
-use self::winapi::um::winnt::HRESULT;
-use std::io::Error as IoError;
-use traits::{DeviceTrait, EventLoopTrait, HostTrait, StreamIdTrait};
-pub use self::device::{Device, Devices, SupportedInputFormats, SupportedOutputFormats, default_input_device, default_output_device};
-pub use self::stream::{EventLoop, StreamId};
 
 mod com;
 mod device;
 mod stream;
+
+pub mod new;
 
 /// The WASAPI host, the default windows host type.
 #[derive(Debug)]
@@ -65,11 +70,15 @@ impl DeviceTrait for Device {
         Device::name(self)
     }
 
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
+    fn supported_input_formats(
+        &self,
+    ) -> Result<Self::SupportedInputFormats, SupportedFormatsError> {
         Device::supported_input_formats(self)
     }
 
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError> {
         Device::supported_output_formats(self)
     }
 
