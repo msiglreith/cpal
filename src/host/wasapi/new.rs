@@ -1,6 +1,7 @@
-use std::mem;
+use std::{slice, ptr, mem};
 use std::ops::{Deref, Drop};
-use std::ptr;
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt;
 
 use super::com::{self, WeakPtr};
 use super::winapi::shared::devpkey::*;
@@ -11,7 +12,6 @@ use super::winapi::um::audiosessiontypes::*;
 use super::winapi::um::combaseapi::*;
 use super::winapi::um::coml2api::STGM_READ;
 use super::winapi::um::mmdeviceapi::*;
-use super::winapi::um::objbase::COINIT_MULTITHREADED;
 use super::winapi::um::propsys::*;
 use super::winapi::um::synchapi;
 use super::winapi::um::winnt;
@@ -198,7 +198,30 @@ impl Drop for PhysicalDevice {
 
 impl traits::PhysicalDevice for PhysicalDevice {
     fn properties(&self) -> traits::PhysicalDeviceProperties {
-        unimplemented!()
+        type PropertyStore = WeakPtr<IPropertyStore>;
+
+        let mut store = PropertyStore::null();
+        unsafe { self.OpenPropertyStore(STGM_READ, store.mut_void() as *mut _) };
+
+        let device_name = unsafe {
+            let mut value = mem::MaybeUninit::uninit();
+            store.GetValue(
+                &DEVPKEY_Device_FriendlyName as *const _ as *const _,
+                value.as_mut_ptr(),
+            );
+            let value = value.assume_init();
+            let os_str = *value.data.pwszVal();
+            let mut len = 0;
+            while *os_str.offset(len) != 0 {
+                len += 1;
+            }
+            let name: OsString = OsStringExt::from_wide(slice::from_raw_parts(os_str, len as _));
+            name.into_string().unwrap()
+        };
+
+        traits::PhysicalDeviceProperties {
+            device_name,
+        }
     }
 }
 

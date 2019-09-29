@@ -7,11 +7,8 @@ use std::ops::Deref;
 use std::ptr;
 
 use super::winapi::ctypes::c_void;
-use super::winapi::shared::winerror::HRESULT;
 use super::winapi::um::combaseapi::{CoInitializeEx, CoUninitialize};
 use super::winapi::um::objbase::COINIT_MULTITHREADED;
-use super::winapi::um::unknwnbase::IUnknown;
-use super::winapi::Interface;
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {
@@ -50,49 +47,12 @@ impl<T> WeakPtr<T> {
         WeakPtr(ptr::null_mut())
     }
 
-    pub unsafe fn from_raw(raw: *mut T) -> Self {
-        WeakPtr(raw)
-    }
-
     pub fn is_null(self) -> bool {
         self.0.is_null()
     }
 
-    pub fn as_ptr(self) -> *const T {
-        self.0
-    }
-
-    pub fn as_mut_ptr(self) -> *mut T {
-        self.0
-    }
-
     pub unsafe fn mut_void(&mut self) -> *mut *mut c_void {
         &mut self.0 as *mut *mut _ as *mut *mut _
-    }
-}
-
-impl<T: Interface> WeakPtr<T> {
-    pub unsafe fn as_unknown(&self) -> &IUnknown {
-        debug_assert!(!self.is_null());
-        &*(self.0 as *mut IUnknown)
-    }
-
-    // Cast creates a new WeakPtr requiring explicit destroy call.
-    pub unsafe fn cast<U>(self) -> (WeakPtr<U>, HRESULT)
-    where
-        U: Interface,
-    {
-        let mut obj = WeakPtr::<U>::null();
-        let hr = self
-            .as_unknown()
-            .QueryInterface(&U::uuidof(), obj.mut_void());
-        (obj, hr)
-    }
-
-    // Destroying one instance of the WeakPtr will invalidate all
-    // copies and clones.
-    pub unsafe fn destroy(self) {
-        self.as_unknown().Release();
     }
 }
 
