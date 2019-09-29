@@ -20,7 +20,9 @@ pub trait Instance {
 
     fn create(name: &str) -> Self;
 
-    fn enumerate_physical_input_devices(&self) -> Vec<Self::PhysicalDevice>;
+    fn enumerate_physical_input_devices(&self) -> Result<Vec<Self::PhysicalDevice>, DevicesError>;
+
+    fn enumerate_physical_output_devices(&self) -> Result<Vec<Self::PhysicalDevice>, DevicesError>;
 
     fn create_device(&self, physical_device: &Self::PhysicalDevice, format: Format)
         -> Self::Device;
