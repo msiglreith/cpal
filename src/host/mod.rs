@@ -8,4 +8,4 @@ pub(crate) mod coreaudio;
 pub(crate) mod emscripten;
 pub(crate) mod null;
 #[cfg(windows)]
-pub(crate) mod wasapi;
+pub mod wasapi;

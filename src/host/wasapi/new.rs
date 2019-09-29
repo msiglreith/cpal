@@ -1,7 +1,7 @@
-use std::{slice, ptr, mem};
-use std::ops::{Deref, Drop};
 use std::ffi::OsString;
+use std::ops::{Deref, Drop};
 use std::os::windows::ffi::OsStringExt;
+use std::{mem, ptr, slice};
 
 use super::com::{self, WeakPtr};
 use super::winapi::shared::devpkey::*;
@@ -17,7 +17,8 @@ use super::winapi::um::synchapi;
 use super::winapi::um::winnt;
 use super::winapi::Interface;
 use super::{check_result, check_result_backend_specific};
-use {traits, DevicesError, Format, SampleFormat};
+use api::{Error, Result};
+use {api, Format, SampleFormat};
 
 type InstanceRaw = WeakPtr<IMMDeviceEnumerator>;
 pub struct Instance(InstanceRaw);
@@ -36,10 +37,7 @@ impl Drop for Instance {
 }
 
 impl Instance {
-    unsafe fn enumerate_physical_devices(
-        &self,
-        ty: EDataFlow,
-    ) -> Result<Vec<PhysicalDevice>, DevicesError> {
+    unsafe fn enumerate_physical_devices(&self, ty: EDataFlow) -> Result<Vec<PhysicalDevice>> {
         type DeviceCollection = WeakPtr<IMMDeviceCollection>;
 
         let collection = {
@@ -75,7 +73,7 @@ impl Instance {
     }
 }
 
-impl traits::Instance for Instance {
+impl api::Instance for Instance {
     type PhysicalDevice = PhysicalDevice;
     type Device = Device;
 
@@ -99,11 +97,11 @@ impl traits::Instance for Instance {
         Instance(instance)
     }
 
-    fn enumerate_physical_input_devices(&self) -> Result<Vec<Self::PhysicalDevice>, DevicesError> {
+    fn enumerate_physical_input_devices(&self) -> Result<Vec<Self::PhysicalDevice>> {
         unsafe { self.enumerate_physical_devices(eCapture) }
     }
 
-    fn enumerate_physical_output_devices(&self) -> Result<Vec<Self::PhysicalDevice>, DevicesError> {
+    fn enumerate_physical_output_devices(&self) -> Result<Vec<Self::PhysicalDevice>> {
         unsafe { self.enumerate_physical_devices(eRender) }
     }
 
@@ -111,7 +109,7 @@ impl traits::Instance for Instance {
         &self,
         physical_device: &Self::PhysicalDevice,
         format: Format,
-    ) -> Self::Device {
+    ) -> Result<Self::Device> {
         let audio_client = {
             let mut audio_client = WeakPtr::<IAudioClient>::null();
             let hresult = unsafe {
@@ -123,7 +121,7 @@ impl traits::Instance for Instance {
                 )
             };
             // can fail if the device has been disconnected since we enumerated it.
-            check_result(hresult).unwrap(); // TODO: error
+            check_result(hresult)?;
             assert!(!audio_client.is_null());
 
             audio_client
@@ -155,28 +153,30 @@ impl traits::Instance for Instance {
         match check_result(hresult) {
             Err(ref e) if e.raw_os_error() == Some(AUDCLNT_E_DEVICE_INVALIDATED) => {
                 unsafe { audio_client.Release() };
-                panic!("device not available"); // TODO: error
-                                                // return Err(BuildStreamError::DeviceNotAvailable);
+                return Err(Error::DeviceLost);
             }
             Err(e) => {
                 unsafe { audio_client.Release() };
-                panic!("{}", e); // TODO: error
-
-                // let description = format!("{}", e);
-                // let err = BackendSpecificError { description };
-                // return Err(err.into());
+                let description = format!("{}", e);
+                return Err(Error::BackendSpecific { description });
             }
             Ok(()) => (),
         };
 
         let fence = unsafe { Fence::create(false, false) };
+        let hresult = unsafe { audio_client.SetEventHandle(fence.0) };
+        if let Err(e) = check_result(hresult) {
+            unsafe {
+                audio_client.Release();
+            }
+            let description = format!("failed to call SetEventHandle: {}", e);
+            return Err(Error::BackendSpecific { description });
+        }
 
-        let hresult = unsafe { audio_client.SetEventHandle(fence.0) }; // TODO: error
-
-        Device {
+        Ok(Device {
             audio_client,
             fence,
-        }
+        })
     }
 }
 
@@ -196,8 +196,8 @@ impl Drop for PhysicalDevice {
     }
 }
 
-impl traits::PhysicalDevice for PhysicalDevice {
-    fn properties(&self) -> traits::PhysicalDeviceProperties {
+impl api::PhysicalDevice for PhysicalDevice {
+    fn properties(&self) -> api::PhysicalDeviceProperties {
         type PropertyStore = WeakPtr<IPropertyStore>;
 
         let mut store = PropertyStore::null();
@@ -219,9 +219,7 @@ impl traits::PhysicalDevice for PhysicalDevice {
             name.into_string().unwrap()
         };
 
-        traits::PhysicalDeviceProperties {
-            device_name,
-        }
+        api::PhysicalDeviceProperties { device_name }
     }
 }
 
@@ -230,52 +228,92 @@ pub struct Device {
     fence: Fence,
 }
 
-impl traits::Device for Device {
+impl api::Device for Device {
     type OutputStream = OutputStream;
     type InputStream = InputStream;
 
-    fn properties(&self) -> traits::DeviceProperties {
+    fn properties(&self) -> api::DeviceProperties {
+        api::DeviceProperties {}
+    }
+
+    fn output_stream(&self) -> Result<Self::OutputStream> {
+        // TODO: check device type
+
+        let mut audio_render_client = WeakPtr::<IAudioRenderClient>::null();
+        let hresult = unsafe {
+            self.audio_client.GetService(
+                &IAudioRenderClient::uuidof(),
+                audio_render_client.mut_void() as *mut _,
+            )
+        };
+
+        // TODO: error
+
+        let buffer_size = {
+            let mut size = 0;
+            let hresult = unsafe { self.audio_client.GetBufferSize(&mut size) }; // TODO: error
+            size
+        };
+
+        Ok(OutputStream {
+            audio_client: self.audio_client,
+            audio_render_client,
+            buffer_size,
+            fence: self.fence,
+        })
+    }
+
+    fn async_output_stream(&self) -> Result<Self::OutputStream> {
+        Err(Error::Unsupported)
+    }
+
+    fn input_stream(&self) -> Result<Self::InputStream> {
         unimplemented!()
     }
 
-    fn output_stream(&self) -> Self::OutputStream {
-        unimplemented!()
-    }
-
-    fn async_output_stream(&self) -> Self::OutputStream {
-        unimplemented!()
-    }
-
-    fn input_stream(&self) -> Self::InputStream {
-        unimplemented!()
-    }
-
-    fn async_input_stream(&self) -> Self::InputStream {
-        unimplemented!()
+    fn async_input_stream(&self) -> Result<Self::InputStream> {
+        Err(Error::Unsupported)
     }
 }
 
 pub struct OutputStream {
     audio_client: WeakPtr<IAudioClient>,
     audio_render_client: WeakPtr<IAudioRenderClient>,
+    buffer_size: u32,
     fence: Fence,
 }
 
-impl traits::OutputStream for OutputStream {
+impl api::OutputStream for OutputStream {
     fn start(&self) {
-        unimplemented!()
+        unsafe {
+            self.audio_client.Start();
+        }
     }
 
     fn stop(&self) {
-        unimplemented!()
+        unsafe {
+            self.audio_client.Stop();
+        }
     }
 
-    fn acquire_buffer(&self, timeout_ms: u32) -> (*mut (), traits::Frames) {
-        unimplemented!()
+    fn acquire_buffer(&self, timeout_ms: u32) -> (*mut (), api::Frames) {
+        unsafe { self.fence.wait(timeout_ms); }
+
+        let mut data = ptr::null_mut();
+        let mut padding = 0;
+
+        let hresult = unsafe { self.audio_client.GetCurrentPadding(&mut padding) }; // TODO: error
+
+        let len = self.buffer_size - padding;
+        let hresult = unsafe { self.audio_render_client.GetBuffer(len, &mut data) }; // TODO: error
+
+        (data as _, len as _)
     }
 
-    fn release_buffer(&self, num_frames: traits::Frames) {
-        unimplemented!()
+    fn release_buffer(&self, num_frames: api::Frames) {
+        unsafe {
+            self.audio_render_client.ReleaseBuffer(num_frames as _, 0);
+        }
     }
 }
 
@@ -284,7 +322,7 @@ pub struct InputStream {
     fence: Fence,
 }
 
-impl traits::InputStream for InputStream {}
+impl api::InputStream for InputStream {}
 
 #[derive(Copy, Clone)]
 struct Fence(pub winnt::HANDLE);

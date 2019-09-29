@@ -6,55 +6,6 @@ use {
     SupportedFormatsError,
 };
 
-pub type Frames = usize;
-
-pub struct PhysicalDeviceProperties {
-    pub device_name: String,
-}
-
-pub struct DeviceProperties {}
-
-pub trait Instance {
-    type PhysicalDevice: PhysicalDevice;
-    type Device: Device;
-
-    fn create(name: &str) -> Self;
-
-    fn enumerate_physical_input_devices(&self) -> Result<Vec<Self::PhysicalDevice>, DevicesError>;
-
-    fn enumerate_physical_output_devices(&self) -> Result<Vec<Self::PhysicalDevice>, DevicesError>;
-
-    fn create_device(&self, physical_device: &Self::PhysicalDevice, format: Format)
-        -> Self::Device;
-}
-
-pub trait PhysicalDevice {
-    fn properties(&self) -> PhysicalDeviceProperties;
-}
-
-pub trait Device {
-    type OutputStream: OutputStream;
-    type InputStream: InputStream;
-
-    fn properties(&self) -> DeviceProperties;
-
-    fn output_stream(&self) -> Self::OutputStream;
-    fn async_output_stream(&self) -> Self::OutputStream;
-
-    fn input_stream(&self) -> Self::InputStream;
-    fn async_input_stream(&self) -> Self::InputStream;
-}
-
-pub trait OutputStream {
-    fn start(&self);
-    fn stop(&self);
-
-    fn acquire_buffer(&self, timeout_ms: u32) -> (*mut (), Frames);
-    fn release_buffer(&self, num_frames: Frames);
-}
-
-pub trait InputStream {}
-
 /// A **Host** provides access to the available audio devices on the system.
 ///
 /// Each platform may have a number of available hosts depending on the system, each with their own
