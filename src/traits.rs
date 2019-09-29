@@ -1,19 +1,57 @@
 //! The suite of traits allowing CPAL to abstract over hosts, devices, event loops and stream IDs.
 
 use {
-    BuildStreamError,
-    DefaultFormatError,
-    DeviceNameError,
-    DevicesError,
-    Format,
-    InputDevices,
-    OutputDevices,
-    PauseStreamError,
-    PlayStreamError,
-    StreamDataResult,
-    SupportedFormat,
+    BuildStreamError, DefaultFormatError, DeviceNameError, DevicesError, Format, InputDevices,
+    OutputDevices, PauseStreamError, PlayStreamError, StreamDataResult, SupportedFormat,
     SupportedFormatsError,
 };
+
+pub type Frames = usize;
+
+pub struct PhysicalDeviceProperties {
+    pub device_name: String,
+}
+
+pub struct DeviceProperties {}
+
+pub trait Instance {
+    type PhysicalDevice: PhysicalDevice;
+    type Device: Device;
+
+    fn create(name: &str) -> Self;
+
+    fn enumerate_physical_input_devices(&self) -> Vec<Self::PhysicalDevice>;
+
+    fn create_device(&self, physical_device: &Self::PhysicalDevice, format: Format)
+        -> Self::Device;
+}
+
+pub trait PhysicalDevice {
+    fn properties(&self) -> PhysicalDeviceProperties;
+}
+
+pub trait Device {
+    type OutputStream: OutputStream;
+    type InputStream: InputStream;
+
+    fn properties(&self) -> DeviceProperties;
+
+    fn output_stream(&self) -> Self::OutputStream;
+    fn async_output_stream(&self) -> Self::OutputStream;
+
+    fn input_stream(&self) -> Self::InputStream;
+    fn async_input_stream(&self) -> Self::InputStream;
+}
+
+pub trait OutputStream {
+    fn start(&self);
+    fn stop(&self);
+
+    fn acquire_buffer(&self, timeout_ms: u32) -> (*mut (), Frames);
+    fn release_buffer(&self, num_frames: Frames);
+}
+
+pub trait InputStream {}
 
 /// A **Host** provides access to the available audio devices on the system.
 ///
@@ -69,7 +107,8 @@ pub trait HostTrait {
     /// Can be empty if the system does not support audio input.
     fn input_devices(&self) -> Result<InputDevices<Self::Devices>, DevicesError> {
         fn supports_input<D: DeviceTrait>(device: &D) -> bool {
-            device.supported_input_formats()
+            device
+                .supported_input_formats()
                 .map(|mut iter| iter.next().is_some())
                 .unwrap_or(false)
         }
@@ -82,7 +121,8 @@ pub trait HostTrait {
     /// Can be empty if the system does not support audio output.
     fn output_devices(&self) -> Result<OutputDevices<Self::Devices>, DevicesError> {
         fn supports_output<D: DeviceTrait>(device: &D) -> bool {
-            device.supported_output_formats()
+            device
+                .supported_output_formats()
                 .map(|mut iter| iter.next().is_some())
                 .unwrap_or(false)
         }
@@ -106,12 +146,15 @@ pub trait DeviceTrait {
     /// An iterator yielding formats that are supported by the backend.
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
-    fn supported_input_formats(&self) -> Result<Self::SupportedInputFormats, SupportedFormatsError>;
+    fn supported_input_formats(&self)
+        -> Result<Self::SupportedInputFormats, SupportedFormatsError>;
 
     /// An iterator yielding output stream formats that are supported by the device.
     ///
     /// Can return an error if the device is no longer valid (eg. it has been disconnected).
-    fn supported_output_formats(&self) -> Result<Self::SupportedOutputFormats, SupportedFormatsError>;
+    fn supported_output_formats(
+        &self,
+    ) -> Result<Self::SupportedOutputFormats, SupportedFormatsError>;
 
     /// The default input stream format for the device.
     fn default_input_format(&self) -> Result<Format, DefaultFormatError>;
