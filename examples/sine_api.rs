@@ -5,13 +5,9 @@ use cpal::api::{PhysicalDevice, Instance, Device, OutputStream};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let instance = cpal::wasapi::new::Instance::create("cpal - sine");
 
-    let output_devices = instance.enumerate_physical_output_devices()?;
+    let output_device = instance.default_physical_output_device()?.unwrap();
 
-    for device in &output_devices {
-        println!("{:#?}", device.properties());
-    }
-
-    let device = instance.create_device(&output_devices[0], cpal::Format {
+    let device = instance.create_device(&output_device, cpal::Format {
         channels: 2,
         data_type: cpal::SampleFormat::F32,
         sample_rate: cpal::SampleRate(48_000),

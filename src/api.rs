@@ -64,6 +64,16 @@ pub trait Instance {
 
     fn enumerate_physical_output_devices(&self) -> Result<Vec<Self::PhysicalDevice>>;
 
+    /// The default input audio device on the system.
+    ///
+    /// Returns `None` if no input device is available.
+    fn default_physical_input_device(&self) -> Result<Option<Self::PhysicalDevice>>;
+
+    /// The default output audio device on the system.
+    ///
+    /// Returns `None` if no output device is available.
+    fn default_physical_output_device(&self) -> Result<Option<Self::PhysicalDevice>>;
+
     fn create_device(
         &self,
         physical_device: &Self::PhysicalDevice,

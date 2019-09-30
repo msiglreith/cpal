@@ -71,6 +71,15 @@ impl Instance {
 
         Ok(physical_devices)
     }
+
+    unsafe fn default_physical_device(&self, ty: EDataFlow) -> Result<Option<PhysicalDevice>> {
+        let mut device = PhysicalDeviceRaw::null();
+        let hresult = self.GetDefaultAudioEndpoint(ty, eConsole, device.mut_void() as _);
+        if let Err(_err) = check_result(hresult) {
+            return Ok(None); // TODO: check specifically for `E_NOTFOUND`, and panic otherwise
+        }
+        Ok(Some(PhysicalDevice(device)))
+    }
 }
 
 impl api::Instance for Instance {
@@ -103,6 +112,14 @@ impl api::Instance for Instance {
 
     fn enumerate_physical_output_devices(&self) -> Result<Vec<Self::PhysicalDevice>> {
         unsafe { self.enumerate_physical_devices(eRender) }
+    }
+
+    fn default_physical_input_device(&self) -> Result<Option<Self::PhysicalDevice>> {
+        unsafe { self.default_physical_device(eCapture) }
+    }
+
+    fn default_physical_output_device(&self) -> Result<Option<Self::PhysicalDevice>> {
+        unsafe { self.default_physical_device(eRender) }
     }
 
     fn create_device(
@@ -297,7 +314,9 @@ impl api::OutputStream for OutputStream {
     }
 
     fn acquire_buffer(&self, timeout_ms: u32) -> (*mut (), api::Frames) {
-        unsafe { self.fence.wait(timeout_ms); }
+        unsafe {
+            self.fence.wait(timeout_ms);
+        }
 
         let mut data = ptr::null_mut();
         let mut padding = 0;
