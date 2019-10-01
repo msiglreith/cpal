@@ -54,10 +54,12 @@ pub struct PhysicalDeviceProperties {
 #[derive(Debug, Clone)]
 pub struct DeviceProperties {}
 
+///
 pub trait Instance {
     type PhysicalDevice: PhysicalDevice;
     type Device: Device;
 
+    /// Create an instance object.
     fn create(name: &str) -> Self;
 
     fn enumerate_physical_input_devices(&self) -> Result<Vec<Self::PhysicalDevice>>;

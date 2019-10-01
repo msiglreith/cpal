@@ -3,7 +3,15 @@ extern crate cpal;
 use cpal::api::{PhysicalDevice, Instance, Device, OutputStream};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(windows)]
     let instance = cpal::wasapi::new::Instance::create("cpal - sine");
+    #[cfg(target_os = "linux")]
+    let instance = cpal::alsa::new::Instance::create("cpal - sine");
+
+    let output_devices =instance.enumerate_physical_output_devices()?;
+    for device in output_devices {
+        println!("{:#?}", device.properties());
+    }
 
     let output_device = instance.default_physical_output_device()?.unwrap();
 
@@ -18,7 +26,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let num_channels = 2;
     let cycle_step = frequency / sample_rate;
     let mut cycle = 0.0;
-
 
     let mut stream = device.output_stream()?;
     stream.start();

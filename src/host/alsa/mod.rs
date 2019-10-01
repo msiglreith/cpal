@@ -33,6 +33,7 @@ pub type SupportedInputFormats = VecIntoIter<SupportedFormat>;
 pub type SupportedOutputFormats = VecIntoIter<SupportedFormat>;
 
 mod enumerate;
+pub mod new;
 
 /// The default linux and freebsd host type.
 #[derive(Debug)]

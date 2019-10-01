@@ -1,5 +1,5 @@
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-pub(crate) mod alsa;
+pub mod alsa;
 #[cfg(all(windows, feature = "asio"))]
 pub(crate) mod asio;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
