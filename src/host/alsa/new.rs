@@ -1,10 +1,9 @@
-
-use api::{Error, Result};
-use {Format, api, SampleFormat};
 use super::alsa;
 use super::check_errors;
+use api::{Error, Result};
 use std::ffi::CString;
 use std::{mem, ptr};
+use {api, Format, SampleFormat};
 
 pub struct Instance;
 
@@ -42,8 +41,10 @@ impl api::Instance for Instance {
                 }
 
                 let name = {
-                    let n_ptr = alsa::snd_device_name_get_hint(*hints as *const _,
-                                                               b"NAME\0".as_ptr() as *const _);
+                    let n_ptr = alsa::snd_device_name_get_hint(
+                        *hints as *const _,
+                        b"NAME\0".as_ptr() as *const _,
+                    );
                     if !n_ptr.is_null() {
                         let bytes = CString::from_raw(n_ptr).into_bytes();
                         let string = String::from_utf8(bytes).unwrap();
@@ -54,8 +55,10 @@ impl api::Instance for Instance {
                 };
 
                 let io = {
-                    let n_ptr = alsa::snd_device_name_get_hint(*hints as *const _,
-                                                               b"IOID\0".as_ptr() as *const _);
+                    let n_ptr = alsa::snd_device_name_get_hint(
+                        *hints as *const _,
+                        b"IOID\0".as_ptr() as *const _,
+                    );
                     if !n_ptr.is_null() {
                         let bytes = CString::from_raw(n_ptr).into_bytes();
                         let string = String::from_utf8(bytes).unwrap();
@@ -80,7 +83,7 @@ impl api::Instance for Instance {
                             continue;
                         }
                         name
-                    },
+                    }
                     _ => continue,
                 };
 
@@ -128,7 +131,8 @@ impl api::Instance for Instance {
         format: Format,
     ) -> Result<Self::Device> {
         unsafe {
-            let name = CString::new(physical_device.device_name.clone()).expect("unable to clone device");
+            let name =
+                CString::new(physical_device.device_name.clone()).expect("unable to clone device");
 
             let mut pcm = ptr::null_mut();
             match alsa::snd_pcm_open(
@@ -158,10 +162,15 @@ impl api::Instance for Instance {
             let buffer_frames = 1024; // TODO
             let buffer_layout = std::alloc::Layout::from_size_align(
                 format.channels as usize * buffer_frames * format_layout.size(),
-                format_layout.align()
-            ).unwrap(); // aligned and size within bounds
+                format_layout.align(),
+            )
+            .unwrap(); // aligned and size within bounds
 
-            Ok(Device { pcm, buffer_layout, buffer_frames })
+            Ok(Device {
+                pcm,
+                buffer_layout,
+                buffer_frames,
+            })
         }
     }
 }
@@ -239,7 +248,10 @@ impl api::OutputStream for OutputStream {
     fn acquire_buffer(&self, timeout_ms: u32) -> (*mut (), api::Frames) {
         unsafe {
             let _ = alsa::snd_pcm_wait(self.pcm, timeout_ms as _); // TODO: return value
-            (self.buffer as _, self.buffer_frames)
+            let num_available = alsa::snd_pcm_avail(self.pcm);
+            assert!(num_available > 0); // TODO
+            let num_frames = num_available.min(self.buffer_frames as _);
+            (self.buffer as _, num_frames as _)
         }
     }
 
@@ -252,10 +264,7 @@ impl api::OutputStream for OutputStream {
 
 pub struct InputStream;
 
-impl api::InputStream for InputStream {
-
-}
-
+impl api::InputStream for InputStream {}
 
 unsafe fn set_hw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
@@ -265,9 +274,11 @@ unsafe fn set_hw_params_from_format(
     if let Err(e) = check_errors(alsa::snd_pcm_hw_params_any(pcm_handle, hw_params.0)) {
         return Err(format!("errors on pcm handle: {}", e));
     }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_access(pcm_handle,
-                                                    hw_params.0,
-                                                    alsa::SND_PCM_ACCESS_RW_INTERLEAVED)) {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_access(
+        pcm_handle,
+        hw_params.0,
+        alsa::SND_PCM_ACCESS_RW_INTERLEAVED,
+    )) {
         return Err(format!("handle not acessible: {}", e));
     }
 
@@ -285,32 +296,38 @@ unsafe fn set_hw_params_from_format(
         }
     };
 
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_format(pcm_handle,
-                                                    hw_params.0,
-                                                    data_type)) {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_format(
+        pcm_handle,
+        hw_params.0,
+        data_type,
+    )) {
         return Err(format!("format could not be set: {}", e));
     }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_rate(pcm_handle,
-                                                  hw_params.0,
-                                                  format.sample_rate.0 as libc::c_uint,
-                                                  0)) {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_rate(
+        pcm_handle,
+        hw_params.0,
+        format.sample_rate.0 as libc::c_uint,
+        0,
+    )) {
         return Err(format!("sample rate could not be set: {}", e));
     }
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_channels(pcm_handle,
-                                                      hw_params.0,
-                                                      format.channels as
-                                                                      libc::c_uint)) {
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_channels(
+        pcm_handle,
+        hw_params.0,
+        format.channels as libc::c_uint,
+    )) {
         return Err(format!("channel count could not be set: {}", e));
     }
 
     // TODO: Review this. 200ms seems arbitrary...
-    let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t /
-        format.channels as alsa::snd_pcm_uframes_t /
-        5; // 200ms of buffer
-    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(pcm_handle,
-                                                             hw_params.0,
-                                                             &mut max_buffer_size))
-    {
+    let mut max_buffer_size = format.sample_rate.0 as alsa::snd_pcm_uframes_t
+        / format.channels as alsa::snd_pcm_uframes_t
+        / 5; // 200ms of buffer
+    if let Err(e) = check_errors(alsa::snd_pcm_hw_params_set_buffer_size_max(
+        pcm_handle,
+        hw_params.0,
+        &mut max_buffer_size,
+    )) {
         return Err(format!("max buffer size could not be set: {}", e));
     }
 
@@ -324,8 +341,7 @@ unsafe fn set_hw_params_from_format(
 unsafe fn set_sw_params_from_format(
     pcm_handle: *mut alsa::snd_pcm_t,
     format: &Format,
-) -> std::result::Result<(usize, usize), String>
-{
+) -> std::result::Result<(usize, usize), String> {
     let mut sw_params = mem::uninitialized(); // TODO: RAII
     if let Err(e) = check_errors(alsa::snd_pcm_sw_params_malloc(&mut sw_params)) {
         return Err(format!("snd_pcm_sw_params_malloc failed: {}", e));
@@ -333,20 +349,31 @@ unsafe fn set_sw_params_from_format(
     if let Err(e) = check_errors(alsa::snd_pcm_sw_params_current(pcm_handle, sw_params)) {
         return Err(format!("snd_pcm_sw_params_current failed: {}", e));
     }
-    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_start_threshold(pcm_handle, sw_params, 0)) {
-        return Err(format!("snd_pcm_sw_params_set_start_threshold failed: {}", e));
+    if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_start_threshold(
+        pcm_handle, sw_params, 0,
+    )) {
+        return Err(format!(
+            "snd_pcm_sw_params_set_start_threshold failed: {}",
+            e
+        ));
     }
 
     let (buffer_len, period_len) = {
         let mut buffer = mem::uninitialized();
         let mut period = mem::uninitialized();
-        if let Err(e) = check_errors(alsa::snd_pcm_get_params(pcm_handle, &mut buffer, &mut period)) {
+        if let Err(e) = check_errors(alsa::snd_pcm_get_params(
+            pcm_handle,
+            &mut buffer,
+            &mut period,
+        )) {
             return Err(format!("failed to initialize buffer: {}", e));
         }
         if buffer == 0 {
             return Err(format!("initialization resulted in a null buffer"));
         }
-        if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_avail_min(pcm_handle, sw_params, period)) {
+        if let Err(e) = check_errors(alsa::snd_pcm_sw_params_set_avail_min(
+            pcm_handle, sw_params, period,
+        )) {
             return Err(format!("snd_pcm_sw_params_set_avail_min failed: {}", e));
         }
         let buffer = buffer as usize * format.channels as usize;
